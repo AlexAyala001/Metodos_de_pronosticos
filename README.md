@@ -1,12 +1,12 @@
-# Metodos_de_pronosticos
+# Métodos de prónosticos
 
-## Metodos de pronostico de series de tiempo
+## Métodos de prónostico de series de tiempo
 
 Análisis exploratorio de la serie de tiempo: Componente estacional, componente de tendencia
 
-Metodos informales: Metodo informal, Metodo informal estacional y metodo informal con drift
+Métodos informales: Método informal, Método informal estacional y Método informal con drift
 
-Metodos de suavizamiento exponencial: Holt, Holt-Winters 
+Métodos de suavizamiento exponencial: Holt, Holt-Winters 
 
 Análisis residual: Prueba Ljung-Box (Prueba de no correlación) y Prueba jarque Bera (Prueba de normalidad)
 
