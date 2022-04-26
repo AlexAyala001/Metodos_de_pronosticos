@@ -1,0 +1,481 @@
+---
+title: "Práctica No. 2"
+author: "Equipo 1"
+date: "`r Sys.Date()`"
+output: 
+    rmdformats::downcute:
+      highlight: "tango"
+      lightbox: TRUE
+      self_contained: TRUE
+      code_folding: show
+      gallery: TRUE
+      fig_width: 10
+      fig_height: 4
+      df_print: kable
+      toc_float:
+        collapsed: TRUE
+        smooth_scroll: TRUE
+---
+
+```{r knitr_init, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+## Global options
+options(max.print = "75")
+opts_chunk$set(echo = TRUE,
+	             cache = FALSE,
+               prompt = FALSE,
+               tidy = FALSE,
+               comment = NA,
+               message = FALSE,
+               warning = FALSE)
+opts_knit$set(width = 75)
+```
+
+```{r, echo=FALSE,message=F,warning=F}
+library(fpp2)
+library(readxl)
+library(tidyverse)
+library(magrittr)
+library(nortest)
+library(dygraphs)
+library(lmtest)
+library(knitr)
+```
+
+
+# Ejercicios {.tabset .tabset-fade .tabset-pills}
+
+## Ejercicio 1 {.tabset .tabset-fade .tabset-pills}
+
+La información de ventas mensuales (en kg) de las galletas de Surtido de la compañía GAMESA, desde enero de 2000 a mayo de 2003 se proporcionan en el archivo *cookies.xls*. Pronóstique las ventas de los siguientes dos años.
+
+### 1
+
+Realizar un análisis exploratorio de la serie de tiempo y redacte sus hallazgos
+
+Se importan los datos y se crea un objeto de tipo `ts`.
+```{r}
+cook <- read_xls("cookies.xls")
+Ventas <- ts(cook$cookies,frequency =12, start= c(2000,1), end = c(2003,5)) 
+```
+
+#### 1.1 Grafica de la serie de tiempo.
+
+Se crea la grafica de la serie de tiempo mediante la función `autoplot()`, con la función `ggAcf()` se grafica el correlograma y con la función `ggtsdislay()` se generan las dos gráficas anteriores. (paquetes `forecast` y `ggplot2`). **ésta nos proporciona información general de la serie de tiempo**.Por ejemplo, componentes de la serie (componente horizontal, tendencia o estacioanlidad), si se trata de una serie estacionaria, presencia de outliers, tendencia amortiguada, etc.
+
+```{r}
+autoplot(Ventas) + geom_smooth()
+```
+
+> Se tiene una serie mensual (periodo estacional $s=12$); No se observa tendencia; no se observan valores atípicos; no se observa componente horizontal; se observa un patrón estacional,  además la amplitud estacional amenta conforme el tiempo amenta.
+
+```{r}
+ggAcf(Ventas, lag.max = 48)
+```
+
+> El Correlograma de la serie de tiempo nos muestra la relación lineal que tiene la serie con su pasado remoto, de esta manera podemos decir que la serie de tiempo presenta correlación serial. Además se puede ver que la correlación aumenta en los multiplos del periodo estacional, donde esa correlación va disminuyendo gradualmente conforme el número de rezagos aumenta.
+
+
+#### 1.2. ¿La serie de tiempo es estacionaria?
+
+La serie no presenta media y varianza constate, es una serie no estacionaria.
+
+#### 1.3. Efecto estacional en la serie de tiempo.
+
+Cuando la serie tiene un patron estacional, se pueden usar las funciones `ggseasonplot()` y`ggsubseriesplot()` para obtener más información de tal componente. Con la primera función los datos se representan en función de las "estaciones" individuales en las que se observaron los datos. Con la segunda función la representación de los datos son análogos a los diagramas de caja, los datos son recopidados para cada estación.
+
+
+```{r}
+ggseasonplot(Ventas)
+ggsubseriesplot(Ventas)
+```
+
+> En esta gráfica se puede observar un poco más claro el comportamiento estacional de la serie, en donde la linea azul es el valor promedio de la demanda de galletas para cada periodo estacional, en las cuales se pude notar que su valor aumenta para los ultimos meses del año. La demanda de galletas alcanza su mayor nivel en mes de noviembre para todos los años.
+
+### 2
+
+Seleccione el método de pronóstico que crea más conveniente de acuerdo a la respuesta del inciso anterior: informal (`naive()`), informal estacional (`snaive()`) o informal con drift (`rwf()`).
+
+- función `naive()` para series de tiempo con el componente irregular o una tendencia no sostenida.
+- función `snaive()` para series temporales con el componente estacional.
+- función `rwf()` para series temporales con tendencia no sostenida (*tendencia estocástica*).
+
+
+```{r, fig.width=8}
+fc_snaive <- snaive(Ventas,h=24)
+fc_naive <- naive(Ventas,h=24)
+fc_rwf <- rwf(Ventas,h=24, drift = TRUE)
+
+all <- cbind('Observados'=Ventas,'Snaive'= fc_snaive$fitted,'Naive'= fc_naive$fitted, 'Rwf'= fc_rwf$fitted)
+  dygraph(all, main = "Ventas Mensuales GAMESA", ylab = "Ventas (kg)") %>% 
+  dyAxis("x", drawGrid = FALSE) %>% dyAxis("y", drawGrid = FALSE) %>%
+  dySeries("Observados", color = "black") %>%
+  dySeries("Snaive", color = "red") %>%
+  dySeries("Naive", color="blue")  %>%
+  dySeries("Rwf", color="green")  %>%
+  dyHighlight(highlightCircleSize = 5, highlightSeriesBackgroundAlpha = 0.2) %>% 
+  dyLegend(width = 400) %>% 
+  dyRangeSelector(height = 20)
+
+```
+
+
+> En esta grafica se muestran los valores observados vs los ajustados para los 3 metodos. Para los métodos `rwf` y `naive` se tienen mejores ajustes respecto a los valores observados.
+
+> Debemos conciderar que el método `naive` funciona mejor para seies que no presentan tendencia ni estacionalidad, por esto es que lo descartamos.
+
+> Para el metodo `rwf` funciona mejor para series que presentan tendecia pero no estacionalidad y nuevamente lo descartamos.
+
+> El método informal estacional (`snaive`)  funciona mejor para las seires que unicamente presentan estacionalidad. Nuestra serie de timepo tiene el componente estacional y no cuenta con tendencia por lo que se usará el **Método informal estacional**
+
+### 3
+
+Realice un análisis residual. ¿Los residuos del método de pronóstico son ruido blanco y se distribuyen normal?
+
+- Función `checkresiduals()` para análisis residual y prueba de no correlación (*Ljung-Box test*)
+
+$$H_{0}: X \mbox{ ruido blanco} \quad \mbox{vs}\quad  H_{a}:X \mbox{ no es ruido blanco}$$
+
++ Se rechaza $H_{0}$ ($Valor-P < \alpha$): Se encontró  evidencia suficiente que justifica  el rechazo de que los residuos son ruido blanco.
+
++ No se rechaza $H_{0}$ ($Valor-P > \alpha$): No se encontró  evidencia suficiente  que justifique el rechazo  de que los residuos son ruido blanco. 
+
+- Función `jarque.bera.test()`
+
+$$H_{0}: X \mbox{ se distribuye normal}  \quad \mbox{vs}\quad   H_{a}:X \mbox{ no se distribuye normal}$$
+
++ Se rechaza $H_{0}$ ($Valor-P < \alpha$): Se encontró evidencia suficiente que justifica  el rechazo de que los residuos se distribuyen normal.
+
++ No se rechaza $H_{0}$ ($Valor-P > \alpha$): No se encontró evidencia suficiente que justifique el rechazo de que los residuos se distribuyen normal.
+
+
+
+```{r}
+ljb_test <- checkresiduals(fc_snaive)
+```
+
+> Ya que **Valor p=** `r round(ljb_test[["p.value"]],4) `> 0.05, no se rechaza $H_{0}$. No se encontro evidencia suficiente que justifica el rechazo de que los residuos son ruido blanco.
+
+```{r}
+(norm_test <- tseries::jarque.bera.test(na.omit(fc_snaive$residuals)))
+```
+
+> Ya que **Valor p=** `r norm_test[["p.value"]]` < 0.05, se rechaza $H_{0}$. Se encontro evidencia suficiente que justifica el rechazo de que los residuos se distribuyen  normal.
+
+> En conclusión los residuos se comportan como ruido blanco y no se distribuyen como normales.
+
+
+### 4
+
+Grafique la serie de tiempo y los pronósticos del método seleccionado ¿ Los pronósticos parecen razonables con el comportamiento histórico de los datos?
+
+
+```{r,fig.width=8}
+all<-cbind('Observados'=Ventas,'Snaive'= fc_snaive$mean,'Naive'= fc_naive$mean, 'Rwf'= fc_rwf$mean)
+dygraph(all, main = "Ventas Mensuales GAMESA", ylab = "Ventas (kg)") %>%
+  dyAxis("x", drawGrid = FALSE) %>% dyAxis("y", drawGrid = FALSE) %>%
+  dySeries("Observados", color = "black") %>%
+  dySeries("Snaive", color = "red") %>%
+  dySeries("Naive", color="blue")  %>%
+  dySeries("Rwf", color="green")  %>%
+  dyHighlight(highlightCircleSize = 5, highlightSeriesBackgroundAlpha = 0.2) %>% 
+  dyLegend(width = 400) %>% 
+  dyRangeSelector(height = 20)
+```
+
+
+```{r,fig.width=8}
+
+all <- cbind("Observados"= Ventas,"lower"=fc_snaive$lower[,2], "fitted"= fc_snaive$mean, "upper"=fc_snaive$upper[,2])
+dygraph(all, main = "Ventas Mensuales GAMESA", ylab = "Ventas (kg)") %>%
+  dyAxis("x", drawGrid = FALSE) %>% dyAxis("y", drawGrid = FALSE) %>%
+  dySeries("Observados", color = "black") %>%
+  dySeries(c("lower", "fitted","upper"), label = "Pronosticos snaive", color="red")  %>%
+  dyHighlight(highlightCircleSize = 5, highlightSeriesBackgroundAlpha = 0.2) %>% 
+  dyLegend(width = 400) %>% 
+  dyRangeSelector(height = 20)
+```
+
+> En esta grafica se muestran los pronosticos de las ventas de galletas  para los siguientes 2 años, donde nuevamente se ve los pronosticos del método informal estacional tienen un mejor ajuste y podrian conciderarse como buenos pronosticos.
+
+
+### 5
+
+Calcule e interprete las siguientes medidas de precisión: `MAE`, `MAPE` y `MPE`.
+
+```{r}
+mts <-cbind(snavie=fc_snaive$mean[20:24],
+            navie=fc_naive$mean[20:24],
+            rwf=fc_rwf$mean[20:24])
+rownames(mts) <- c("Ene 2005","Feb 2005","Mar 2005", "Apr 2005", "May 2005")      
+knitr::kable(mts, caption = "Pronosticos",digits=2)
+```
+
+```{r}
+accu <- accuracy(fc_snaive) %>% round(2)
+knitr::kable(accuracy(fc_snaive), caption = "Snaive",digits=2)
+```
+
+> El `MAE` nos indica que los valores ajustados con este método tiene un promedio de error de `r round(accu[3], 2)`. Podría parecer que este método es infructuoso, pero si observamos la gráfica de valores ajustados y observados, trabaja bien dentro de la muestra. Ese valor puede ser debido a la escala de la variable ventas.
+
+> El `MAPE` indica el error como  un porcentaje promedio del valor real que se va  ajustar.  El error promedio relativo al valor real observado de ventas es de `r round(accu[5],2)`%. En promedio los pronósticos generados con este método van a tener una desviación del `r round(accu[5],2)`% respecto del valor verdadero.
+
+> El `MPE` mide el sesgo de los valores ajustados, $\{\hat{y}_{t}\}$. Con un  valor de `r round(accu[4],2)`% ,es decir, el método de pronóstico no esta subestumando ni sobreestimando consistentemente los datos.
+
+
+### 6
+
+Use el método de suavizamiento exponencial más adecuado para generar los pronósticos de ventas de los siguientes dos años ¿Los residuos se comportan como ruido blanco? Justifique su respuesta.
+
+
+Como la serie de tiempo de las ventas mensuales de Gamesa cuenta cuenta con el componente estacional el método de Holt-Winters multiplicativo `hw()` se ajusta mejor a las carteristicas de la serie.
+
+```{r,fig.width=8}
+fc_hwm <- hw(Ventas, h = 24 ,seasonal = "multiplicative", initial = "optimal" )
+all <- cbind('Observados'=Ventas,'HW Aj'= fc_hwm$fitted,"lower"=fc_hwm$lower[,2],'fitted'= fc_hwm$mean, "upper"=fc_hwm$upper[,2])
+dygraph(all,main = "Ventas Mensuales GAMESA", ylab = "Ventas (kg)") %>% 
+  dyAxis("x", drawGrid = FALSE) %>% dyAxis("y", drawGrid = FALSE) %>%
+  dySeries("Observados", color = "black") %>%
+  dySeries("HW Aj", color = "red") %>%
+  dySeries(c("lower", "fitted","upper"), label = "Holt-Winters MP", color="blue")  %>%
+  dyHighlight(highlightCircleSize = 5, highlightSeriesBackgroundAlpha = 0.2) %>% 
+  dyLegend(width = 400) %>% 
+  dyRangeSelector(height = 20)
+```
+
+```{r}
+accu2 <- accuracy(fc_hwm) %>% round(2)
+knitr::kable(accuracy(fc_hwm), caption = "Holt-Winters multiplicativo",digits=2)
+```
+
+
+> El `MAE` nos indica que los valores ajustados con este método tiene un promedio de error de `r round(accu2[3], 2)`. Podría parecer que este método es infructuoso, pero si observamos la gráfica de valores ajustados y observados, trabaja bien dentro de la muestra. Ese valor puede ser debido a la escala de la variable ventas.
+
+> El `MAPE` indica el error como  un porcentaje promedio del valor real que se va  ajustar.  El error promedio relativo al valor real observado de ventas es de `r round(accu2[5],2)`%. En promedio los pronósticos generados con este método van a tener una desviación del `r round(accu2[5],2)`% respecto del valor verdadero.
+
+> El `MPE` mide el sesgo de los valores ajustados, $\{\hat{y}_{t}\}$. Con un  valor de `r round(accu2[4],2)`% ,es decir, el método de pronóstico no esta subestumando ni sobreestimando consistentemente los datos.
+
+
+```{r}
+ljb_test <- checkresiduals(fc_hwm)
+```
+> Ya que **Valor p=** `r ljb_test[["p.value"]] `< 0.05, se rechaza $H_{0}$. Se encontro evidencia suficiente que justifica el rechazo de que los residuos son ruido blanco.
+
+```{r}
+(norm_test <- tseries::jarque.bera.test(na.omit(fc_hwm$residuals)))
+```
+> Ya que **Valor p=** `r round(norm_test[["p.value"]],4)`> 0.05, no se rechaza $H_{0}$. No se encontro evidencia suficiente que justifica el rechazo de que los residuos se distribuyen  normal.
+
+> En conclusión los residuos no se comportan como ruido blanco y se distribuyen como normales.
+
+
+## Ejercicio 2 {.tabset .tabset-fade .tabset-pills}
+
+La información de ingresos operativos anuales de Sears desde 1955 a 2004 se proporcionan en el archivo *sears_income.xls*. Generar los pronósticos para un horizonte de 5 años.
+
+### 1
+
+Realizar un análisis exploratorio de la serie de tiempo y redacte sus hallazgos
+
+Se importan los datos y se crea un objeto de tipo `ts`.
+```{r}
+Sears <- read_xls("Searsincome.xls")
+Ingresos <- ts(Sears$`Operating Revenue`,frequency=1, start= 1955, end = 2004) 
+```
+
+#### 1.1 Grafica de la serie de tiempo.
+
+Se crea la grafica de la serie de tiempo mediante la función `autoplot()`, con la función `ggAcf()` se grafica el correlograma y con la función `ggtsdislay()` se generan las dos gráficas anteriores. (paquetes `forecast` y `ggplot2`). **ésta nos proporciona información general de la serie de tiempo**.Por ejemplo, componentes de la serie (componente horizontal, tendencia o estacioanlidad), si se trata de una serie estacionaria, presencia de outliers, tendencia amortiguada, etc.
+
+```{r}
+autoplot(Ingresos) + geom_smooth()
+```
+
+> Se tiene una serie mensual (periodo estacional $s=1$); Se observa tendencia exponencial hasta el año 1990 y decae para los siguientes años; no se observan valores atípicos; no se observa componente horizontal. No se observa un patrón estacional.
+
+```{r}
+ggAcf(Ingresos, lag.max = 48)
+```
+
+> El Correlograma de la serie de tiempo nos muestra la relación lineal que tiene la serie con su pasado remoto, de esta manera podemos decir que la serie de tiempo presenta correlación serial. Además se puede ver que la correlación disminuye por el componente de tendecia alcista, llegando a un punto donde se invierte y esta correlacion comienza a subir debido a la tendecia que ahora es bajista.
+
+
+#### 1.2. ¿La serie de tiempo es estacionaria?
+
+La serie no presenta media y varianza constate. Toda serie que presente el componente de tendencia es una serie no estacionaria.
+
+### 2
+
+Seleccione el método de pronóstico que crea más conveniente de acuerdo a la respuesta del inciso anterior: informal (`naive()`), informal estacional (`snaive()`) o informal con drift (`rwf()`).
+
+- función `naive()` para series de tiempo con el componente irregular o una tendencia no sostenida.
+- función `snaive()` para series temporales con el componente estacional.
+- función `rwf()` para series temporales con tendencia no sostenida (*tendencia estocástica*).
+
+```{r, fig.width=8}
+fc_snaive <- snaive(Ingresos,h=5)
+fc_naive <- naive(Ingresos,h=5)
+fc_rwf <- rwf(Ingresos,h=5,drift = TRUE)
+
+all2 <- cbind('Observados'=Ingresos,'Snaive'= fc_snaive$fitted,'Naive'= fc_naive$fitted, 'Rwf'= fc_rwf$fitted)
+  dygraph(all2, main = "Ingresos Operativos Anuales de Sears", ylab = "Ingresos")%>%
+  dyAxis("x", drawGrid = FALSE) %>% dyAxis("y", drawGrid = FALSE) %>%
+  dySeries("Observados", color = "black") %>%
+  dySeries("Snaive", color = "red") %>%
+  dySeries("Naive", color="blue")  %>%
+  dySeries("Rwf", color="green")  %>%
+  dyHighlight(highlightCircleSize = 5, highlightSeriesBackgroundAlpha = 0.2) %>% 
+  dyLegend(width = 400) %>% 
+  dyRangeSelector(height = 20)
+```
+ 
+
+> En esta grafica se muestran los valores observados vs los ajustados para los 3 metodos. Para los métodos `rwf` y `naive` se tienen mejores ajustes respecto a alos valores observados.
+
+> Debemos conciderar que le método `naive` funciona mejor para seies que no presentan tendencia ni estacionalidad, por esto es que lo descartamos.
+
+> El método informal estacional (`snaive`)  funciona mejor para las seires que unicamente presentan estacionalidad, por esto es que lo descartamos.
+
+> Para el metodo `rwf` funciona mejor para series que presentan tendecia pero no estacionalidad. Nuestra serie de timepo tiene el componente de tendecina y no cuenta con el componente de estacionalidad por lo que se usará el **Método informal con drift**
+
+### 3
+
+Realice un análisis residual. ¿Los residuos del método de pronóstico son ruido blanco y se distribuyen normal?
+
+- Función `checkresiduals()` para análisis residual y prueba de no correlación (*Ljung-Box test*)
+
+$$H_{0}: X \mbox{ ruido blanco} \quad \mbox{vs}\quad  H_{a}:X \mbox{ no es ruido blanco}$$
+
++ Se rechaza $H_{0}$ ($Valor-P < \alpha$): Se encontró  evidencia suficiente que justifica  el rechazo de que los residuos son ruido blanco.
+
++ No se rechaza $H_{0}$ ($Valor-P > \alpha$): No se encontró  evidencia suficiente  que justifique el rechazo  de que los residuos son ruido blanco. 
+
+- Función `jarque.bera.test()`
+
+$$H_{0}: X \mbox{ se distribuye normal}  \quad \mbox{vs}\quad   H_{a}:X \mbox{ no se distribuye normal}$$
+
++ Se rechaza $H_{0}$ ($Valor-P < \alpha$): Se encontró evidencia suficiente que justifica  el rechazo de que los residuos se distribuyen normal.
+
++ No se rechaza $H_{0}$ ($Valor-P > \alpha$): No se encontró evidencia suficiente que justifique el rechazo de que los residuos se distribuyen normal.
+
+
+
+```{r}
+ljb_test <- checkresiduals(fc_rwf)
+```
+
+> Ya que **Valor p=** `r ljb_test[["p.value"]] `> 0.05, no se rechaza $H_{0}$. No se encontro evidencia suficiente que justifica el rechazo de que los residuos son ruido blanco.
+
+```{r}
+(norm_test <- tseries::jarque.bera.test(na.omit(fc_rwf$residuals)))
+```
+
+> Ya que **Valor p=** `r norm_test[["p.value"]]` < 0.05, se rechaza $H_{0}$. Se encontro evidencia suficiente que justifica el rechazo de que los residuos se distribuyen  normal.
+
+> En conclusión los residuos se comportan como ruido blanco y no se distribuyen como normales.
+
+
+### 4
+
+Grafique la serie de tiempo y los pronósticos del método seleccionado ¿ Los pronósticos parecen razonables con el comportamiento histórico de los datos?
+
+
+```{r,fig.width=8}
+all2 <- cbind('Observados'=Ingresos,'Snaive'= fc_snaive$mean,'Naive'= fc_naive$mean, 'Rwf'= fc_rwf$mean)
+dygraph(all2,main = "Ingresos Operativos Anuales de Sears", ylab = "Ingresos")%>%
+  dyAxis("x", drawGrid = FALSE) %>% dyAxis("y", drawGrid = FALSE) %>%
+  dySeries("Observados", color = "black") %>%
+  dySeries("Snaive", color = "red") %>%
+  dySeries("Naive", color="blue")  %>%
+  dySeries("Rwf", color="green")  %>%
+  dyHighlight(highlightCircleSize = 5, highlightSeriesBackgroundAlpha = 0.2) %>% 
+  dyLegend(width = 400) %>% 
+  dyRangeSelector(height = 20)
+```
+
+
+```{r,fig.width=8}
+
+all2 <- cbind("Observados"= Ingresos,"lower"=fc_rwf$lower[,2], "fitted"= fc_rwf$mean, "upper"=fc_rwf$upper[,2])
+dygraph(all2, main = "Ingresos Operativos Anuales de Sears", ylab = "Ingresos") %>%
+  dyAxis("x", drawGrid = FALSE) %>% dyAxis("y", drawGrid = FALSE) %>%
+  dySeries("Observados", color = "black") %>%
+  dySeries(c("lower", "fitted","upper"), label = "Pronosticos snaive", color="red")  %>%
+  dyHighlight(highlightCircleSize = 5, highlightSeriesBackgroundAlpha = 0.2) %>% 
+  dyLegend(width = 400) %>% 
+  dyRangeSelector(height = 20)
+
+```
+
+> En esta grafica se muestran los pronosticos de los Ingresos Operativos Anuales de Sears para los siguientes 5 años, donde se llega a la conclusión de que ninguno de los metodos realizan pronosticos razonables, no se ajustan al comportamiento historico de la serie.
+
+### 5
+
+Calcule e interprete las siguientes medidas de precisión: `MAE`, `MAPE` y `MPE`.
+
+```{r}
+mts <-cbind(snavie=fc_snaive$mean[1:5],
+            navie=fc_naive$mean[1:5],
+            rwf=fc_rwf$mean[1:5])
+rownames(mts) <- c("2005", "2006", "2007", "2008", "2009")      
+knitr::kable(mts, caption = "Pronosticos",digits=2)
+```
+
+```{r}
+accu <- accuracy(fc_rwf) %>% round(2)
+knitr::kable(accuracy(fc_rwf), caption = "Rwf",digits=2)
+```
+
+> El `MAE` nos indica que los valores ajustados con este método tiene un promedio de error de `r round(accu[3], 2)`. Podría parecer que este método es infructuoso, pero si observamos la gráfica de valores ajustados y observados, trabaja bien dentro de la muestra. Ese valor puede ser debido a la escala de la variable ventas.
+
+> El `MAPE` indica el error como  un porcentaje promedio del valor real que se va  ajustar.  El error promedio relativo al valor real observado de ventas es de `r round(accu[5],2)`%. En promedio los pronósticos generados con este método van a tener una desviación del `r round(accu[5],2)`% respecto del valor verdadero.
+
+> El `MPE` mide el sesgo de los valores ajustados, $\{\hat{y}_{t}\}$. Con un  valor de `r round(accu[4],2)`% ,es decir, el método de pronóstico no esta subestumando ni sobreestimando consistentemente los datos.
+
+
+### 6
+
+Use el método de suavizamiento exponencial más adecuado para generar los pronósticos de ventas para un horizonte de 5 años ¿Los residuos se comportan como ruido blanco? Justifique su respuesta.
+
+Como la serie de tiempo de los Ingresos Operativos Anuales de Sears cuanta con tendecia exponencial amortiguada el metodo de holt con tendecia amortiguada `holt` se ajusta mejor a las carteristicas de la serie.
+
+```{r,fig.width=8}
+fc_holt <- holt(Ingresos, h = 5 ,damped = TRUE, exponential = TRUE, initial = "optimal" )
+all <- cbind('Observados'=Ingresos,'Holt Aj'= fc_holt$fitted,"lower"=fc_holt$lower[,2],'fitted'= fc_holt$mean, "upper"=fc_holt$upper[,2])
+dygraph(all,main = "Ingresos Operativos Anuales de Sears", ylab = "Ingresos") %>% 
+  dyAxis("x", drawGrid = FALSE) %>% dyAxis("y", drawGrid = FALSE) %>%
+  dySeries("Observados", color = "black") %>%
+  dySeries("Holt Aj", color = "red") %>%
+  dySeries(c("lower", "fitted","upper"), label = "Holt MP", color="blue")  %>%
+  dyHighlight(highlightCircleSize = 5, highlightSeriesBackgroundAlpha = 0.2) %>% 
+  dyLegend(width = 400) %>% 
+  dyRangeSelector(height = 20)
+```
+
+```{r}
+accu2 <- accuracy(fc_holt) %>% round(2)
+knitr::kable(accuracy(fc_holt), caption = "Método Holt con tendecia amortiguada",digits=2)
+```
+
+
+> El `MAE` nos indica que los valores ajustados con este método tiene un promedio de error de `r round(accu2[3], 2)`. Podría parecer que este método es infructuoso, pero si observamos la gráfica de valores ajustados y observados, trabaja bien dentro de la muestra. Ese valor puede ser debido a la escala de la variable Ingresos.
+
+> El `MAPE` indica el error como  un porcentaje promedio del valor real que se va  ajustar.  El error promedio relativo al valor real observado de ventas es de `r round(accu2[5],2)`%. En promedio los pronósticos generados con este método van a tener una desviación del `r round(accu2[5],2)`% respecto del valor verdadero.
+
+> El `MPE` mide el sesgo de los valores ajustados, $\{\hat{y}_{t}\}$. Con un  valor de `r round(accu2[4],2)`% ,es decir,el método de pronóstico no esta subestumando ni sobreestimando consistentemente los datos.
+
+
+```{r}
+ljb_test <- checkresiduals(fc_holt)
+```
+> Ya que **Valor p=** `r ljb_test[["p.value"]] `> 0.05, no se rechaza $H_{0}$. No se encontro evidencia suficiente que justifica el rechazo de que los residuos son ruido blanco.
+
+```{r}
+(norm_test <- tseries::jarque.bera.test(na.omit(fc_holt$residuals)))
+```
+> Ya que **Valor p=** `r norm_test[["p.value"]]`< 0.05, se rechaza $H_{0}$. Se encontro evidencia suficiente que justifica el rechazo de que los residuos se distribuyen  normal.
+
+> En conclusión los residuos se comportan como ruido blanco y no se distribuyen como normales.
+
+
